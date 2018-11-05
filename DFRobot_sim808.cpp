@@ -30,31 +30,39 @@
  
 
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include "DFRobot_sim808.h"
 
-extern Stream *serialSIM808;
+#include "Timer.h"
+#include "usart.h"
+#include "gpio.h"
+
+#include "diag/Trace.h"
+
+extern Timer timer;
+extern GPIOClass gpio;
 
 DFRobot_SIM808* DFRobot_SIM808::inst;
 char receivedStackIndex = 0;
 char receivedStack[130];
 const char *des = "$GPRMC";
 
+char isdigit( unsigned char c)
+{
+  if ( c >= '0' && c <= '9' )
+      return 1;
+
+  return 0;
+}
+
 //char *receivedStack="$GPRMC,165445.000,A,3110.8635,N,12133.4627,E,0.58,70.26,220916,,,A*57";
 
-DFRobot_SIM808::DFRobot_SIM808(HardwareSerial *mySerial)
+DFRobot_SIM808::DFRobot_SIM808()
 {
     inst = this;	
 	serialFlag = 1;
-	hgprsSerial = mySerial;
-    sim808_init(mySerial, 1);
-}
 
-DFRobot_SIM808::DFRobot_SIM808(SoftwareSerial *mySerial)
-{
-    inst = this;
-	serialFlag = 0;
-	gprsSerial = mySerial;
-   sim808_init(mySerial, 0);
 }
 
 bool DFRobot_SIM808::init(void)
@@ -82,16 +90,16 @@ bool DFRobot_SIM808::checkPowerUp(void)
 {
   return sim808_check_with_cmd("AT\r\n","OK\r\n",CMD);
 }
-
+/*
 void DFRobot_SIM808::powerUpDown(uint8_t pin)
 {
   // power on pulse for SIM900 Shield
   digitalWrite(pin,LOW);
-  delay(1000);
+  timer.sleep(1000);
   digitalWrite(pin,HIGH);
-  delay(2000);
+  timer.sleep(2000);
   digitalWrite(pin,LOW);
-  delay(3000);
+  timer.sleep(3000);
 }
 
 void DFRobot_SIM808::powerReset(uint8_t pin)
@@ -99,30 +107,53 @@ void DFRobot_SIM808::powerReset(uint8_t pin)
   // reset for SIM800L board.
   // RST pin has to be OUTPUT, HIGH
   digitalWrite(pin,LOW);
-  delay(1000);
+  timer.sleep(1000);
   digitalWrite(pin,HIGH);
-  delay(3000);  
+  timer.sleep(3000);
 }
-  
+  */
   
 bool DFRobot_SIM808::checkSIMStatus(void)
 {
-    char gprsBuffer[32];
+    char gprsBuffer[64];
     int count = 0;
-    sim808_clean_buffer(gprsBuffer,32);
+    sim808_clean_buffer(gprsBuffer,64);
     while(count < 3) {
         sim808_send_cmd("AT+CPIN?\r\n");
-        sim808_read_buffer(gprsBuffer,32,DEFAULT_TIMEOUT);
+        sim808_read_buffer(gprsBuffer,64,DEFAULT_TIMEOUT);
         if((NULL != strstr(gprsBuffer,"+CPIN: READY"))) {  //閿熸枻鎷风ずSIM鐘舵€侀敓鏂ゆ嫹閿熸枻鎷�
             break;
         }
         count++;
-        delay(300);
+        timer.sleep(300);
     }
     if(count == 3) {
         return false;
     }
     return true;
+}
+
+bool DFRobot_SIM808::unlockSIM(char* pin) {
+	char gprsBuffer[256];
+	int count = 0;
+	sim808_clean_buffer(gprsBuffer,256);
+	while(count < 3) {
+		sim808_send_cmd("AT+CPIN=\"");
+		sim808_send_cmd(pin);
+		sim808_send_cmd("\"\r\n");
+		sim808_read_buffer(gprsBuffer,256,DEFAULT_TIMEOUT*10);
+		//trace_printf(gprsBuffer);
+		if((NULL != strstr(gprsBuffer,"+CPIN: READY"))) {  //閿熸枻鎷风ずSIM鐘舵€侀敓鏂ゆ嫹閿熸枻鎷�
+			break;
+		}
+		count++;
+		timer.sleep(300);
+	}
+	if(count == 3) {
+		return false;
+	}
+	sim808_check_with_cmd("AT+CLCK=\"SC\",0,\"3900\"\r\n", "OK\r\n", CMD);
+	return true;
 }
 
 bool DFRobot_SIM808::sendSMS(char *number, char *data)
@@ -131,7 +162,7 @@ bool DFRobot_SIM808::sendSMS(char *number, char *data)
     if(!sim808_check_with_cmd("AT+CMGF=1\r\n", "OK\r\n", CMD)) { // Set message mode to ASCII
         return false;
     }
-    delay(500);
+    timer.sleep(500);
 	sim808_flush_serial();
 	sim808_send_cmd("AT+CMGS=\"");
 	sim808_send_cmd(number);
@@ -141,9 +172,9 @@ bool DFRobot_SIM808::sendSMS(char *number, char *data)
     if(!sim808_check_with_cmd("\"\r\n",">",CMD)) {
         return false;
     }
-    delay(1000);
+    timer.sleep(1000);
     sim808_send_cmd(data);
-    delay(500);
+    timer.sleep(500);
     sim808_send_End_Mark();
     return sim808_wait_for_resp("OK\r\n", CMD);
 }
@@ -154,10 +185,10 @@ char DFRobot_SIM808::isSMSunread()
     char *s;
     
 	 sim808_check_with_cmd("AT+CMGF=1\r\n","OK\r\n",CMD);
-    delay(1000);
+    timer.sleep(1000);
 
     //List of all UNREAD SMS and DON'T change the SMS UNREAD STATUS
-    sim808_send_cmd(F("AT+CMGL=\"REC UNREAD\",1\r\n"));
+    sim808_send_cmd("AT+CMGL=\"REC UNREAD\",1\r\n");
     /*If you want to change SMS status to READ you will need to send:
           AT+CMGL=\"REC UNREAD\"\r\n
       This command will list all UNREAD SMS and change all of them to READ
@@ -188,9 +219,9 @@ char DFRobot_SIM808::isSMSunread()
     //Serial.print("Buffer isSMSunread: ");Serial.println(gprsBuffer);
 
     if(NULL != ( s = strstr(gprsBuffer,"OK"))) {
-        //In 30 bytes "doesn't" fit whole +CMGL: response, if recieve only "OK"
-        //    means you don't have any UNREAD SMS
-        delay(50);
+        //In 30 uint8_ts "doesn't" fit whole +CMGL: response, if recieve only "OK"
+        //   f means you don't have any UNREAD SMS
+        timer.sleep(50);
         return 0;
     } else {
         //More buffer to read
@@ -236,7 +267,7 @@ bool DFRobot_SIM808::readSMS(int messageIndex, char *message, int length, char *
     char *p,*p2,*s;
     
     sim808_check_with_cmd("AT+CMGF=1\r\n","OK\r\n",CMD);
-    delay(1000);
+    timer.sleep(1000);
 	//sprintf(cmd,"AT+CMGR=%d\r\n",messageIndex);
     //sim808_send_cmd(cmd);
 	sim808_send_cmd("AT+CMGR=");
@@ -293,7 +324,7 @@ bool DFRobot_SIM808::readSMS(int messageIndex, char *message,int length)
     char *p,*s;
 	
     sim808_check_with_cmd("AT+CMGF=1\r\n","OK\r\n",CMD);
-    delay(1000);
+    timer.sleep(1000);
 	sim808_send_cmd("AT+CMGR=");
 	itoa(messageIndex, num, 10);
 	sim808_send_cmd(num);
@@ -337,7 +368,7 @@ bool DFRobot_SIM808::callUp(char *number)
     if(!sim808_check_with_cmd("AT+COLP=1\r\n","OK\r\n",CMD)) {
         return false;
     }
-    delay(1000);
+    timer.sleep(1000);
 	//HACERR quitar SPRINTF para ahorar memoria ???
     //sprintf(cmd,"ATD%s;\r\n", number);
     //sim808_send_cmd(cmd);
@@ -369,7 +400,7 @@ bool DFRobot_SIM808::getSubscriberNumber(char *number)
 	//										-->
 	//OK									--> CRLF + 2 + CRLF = 6
 
-    byte i = 0;
+    uint8_t i = 0;
     char gprsBuffer[65];
     char *p,*s;
 	sim808_flush_serial();
@@ -487,7 +518,7 @@ bool DFRobot_SIM808::getDateTime(char *buffer)
 	//								
 	//OK							--> CRLF + 2 + CRLF =  6
 
-    byte i = 0;
+    uint8_t i = 0;
     char gprsBuffer[50];
     char *p,*s;
 	sim808_flush_serial();
@@ -516,7 +547,7 @@ bool DFRobot_SIM808::getSignalStrength(int *buffer)
 	//+CSQ: <rssi>,<ber>			--> CRLF + 5 + CRLF = 9						
 	//OK							--> CRLF + 2 + CRLF =  6
 
-	byte i = 0;
+	uint8_t i = 0;
 	char gprsBuffer[26];
 	char *p, *s;
 	char buffers[4];
@@ -548,7 +579,7 @@ bool DFRobot_SIM808::sendUSSDSynchronous(char *ussdCommand, char *resultcode, ch
 	//
 	//+CUSD:1,"{response}",{int}
 
-	byte i = 0;
+	uint8_t i = 0;
     char gprsBuffer[200];
     char *p,*s;
     sim808_clean_buffer(response, sizeof(response));
@@ -587,9 +618,9 @@ bool DFRobot_SIM808::cancelUSSDSession(void)
 }
 
 //Here is where we ask for APN configuration, with F() so we can save MEMORY
-bool DFRobot_SIM808::join(const __FlashStringHelper *apn, const __FlashStringHelper *userName, const __FlashStringHelper *passWord)
+bool DFRobot_SIM808::join(const char *apn, const char *userName, const char *passWord)
 {
-	byte i;
+	uint8_t i;
     char *p, *s;
     char ipAddr[32];
     //Select multiple connection
@@ -598,6 +629,9 @@ bool DFRobot_SIM808::join(const __FlashStringHelper *apn, const __FlashStringHel
     //set APN. OLD VERSION
     //snprintf(cmd,sizeof(cmd),"AT+CSTT=\"%s\",\"%s\",\"%s\"\r\n",_apn,_userName,_passWord);
     //sim808_check_with_cmd(cmd, "OK\r\n", DEFAULT_TIMEOUT,CMD);
+//	sim808_check_with_cmd("AT+CSTT=\"web.vodafone.de\",\"\",\"\"\r\n", "OK\r\n", CMD);
+//	sim808_check_with_cmd("AT+CGATT=1\r\n", "OK\r\n", CMD);
+
     sim808_send_cmd("AT+CSTT=\"");
     if (apn) {
       sim808_send_cmd(apn);
@@ -611,7 +645,7 @@ bool DFRobot_SIM808::join(const __FlashStringHelper *apn, const __FlashStringHel
       sim808_send_cmd(passWord);
     }
     sim808_check_with_cmd("\"\r\n", "OK\r\n", CMD);
-    
+
 
     //Brings up wireless connection
     sim808_check_with_cmd("AT+CIICR\r\n","OK\r\n", CMD);
@@ -691,23 +725,23 @@ bool DFRobot_SIM808::connect(Protocol ptl,const char * host, int port, int timeo
 }
 
 //Overload with F() macro to SAVE memory
-bool DFRobot_SIM808::connect(Protocol ptl,const __FlashStringHelper *host, const __FlashStringHelper *port, int timeout, int chartimeout)
+bool DFRobot_SIM808::connect(Protocol ptl,const char *host, const char *port, int timeout, int chartimeout)
 {
     //char cmd[64];
     char resp[96];
 
     //sim808_clean_buffer(cmd,64);
     if(ptl == TCP) {
-        sim808_send_cmd(F("AT+CIPSTART=\"TCP\",\""));   //%s\",%d\r\n",host, port);
+        sim808_send_cmd("AT+CIPSTART=\"TCP\",\"");   //%s\",%d\r\n",host, port);
     } else if(ptl == UDP) {
-        sim808_send_cmd(F("AT+CIPSTART=\"UDP\",\""));   //%s\",%d\r\n",host, port);
+        sim808_send_cmd("AT+CIPSTART=\"UDP\",\"");   //%s\",%d\r\n",host, port);
     } else {
         return false;
     }
     sim808_send_cmd(host);
-    sim808_send_cmd(F("\","));
+    sim808_send_cmd("\",");
     sim808_send_cmd(port);
-    sim808_send_cmd(F("\r\n"));
+    sim808_send_cmd("\r\n");
 //	Serial.print("Connect: "); Serial.println(cmd);
     sim808_read_buffer(resp, 96, timeout, chartimeout);
 //	Serial.print("Connect resp: "); Serial.println(resp);    
@@ -773,9 +807,9 @@ int DFRobot_SIM808::send(const char * str, int len)
         /*if(0 != sim808_check_with_cmd(str,"SEND OK\r\n", DEFAULT_TIMEOUT * 10 ,DATA)) {
             return 0;
         }*/
-        delay(500);
+        timer.sleep(500);
         sim808_send_cmd(str);
-        delay(500);
+        timer.sleep(500);
         sim808_send_End_Mark();
         if(!sim808_wait_for_resp("SEND OK\r\n", DATA, DEFAULT_TIMEOUT * 10, DEFAULT_INTERCHAR_TIMEOUT * 10)) {
             return 0;
@@ -794,11 +828,12 @@ int DFRobot_SIM808::recv(char* buf, int len)
 
 void DFRobot_SIM808::listen(void)
 {
+/*
 	 if(serialFlag)
 		; //hgprsSerial->listen();
 	 else
 		 gprsSerial->listen();
-
+*/
 }
 
 bool DFRobot_SIM808::isListening(void)
@@ -807,6 +842,7 @@ bool DFRobot_SIM808::isListening(void)
 		// return hgprsSerial.isListening();
 	// else
 		// return gprsSerial.isListening();
+	return true;
 }
 
 uint32_t DFRobot_SIM808::str_to_ip(const char* str)
@@ -848,7 +884,7 @@ unsigned long DFRobot_SIM808::getIPnumber()
 }
 */
 
-bool DFRobot_SIM808::getLocation(const __FlashStringHelper *apn, float *longitude, float *latitude)
+bool DFRobot_SIM808::getLocation(const char *apn, float *longitude, float *latitude)
 {    	
 	int i = 0;
     char gprsBuffer[80];
@@ -919,8 +955,8 @@ bool DFRobot_SIM808::getGPRMC()
 	static bool endflag  = false;
 	static char count;
 		
-	while(serialSIM808->available())   //閿熸枻鎷烽敓鏂ゆ嫹閿熸枻鎷烽敓鏂ゆ嫹閿熸枻鎷�
-	{	c = serialSIM808->read();
+	while(USART2_isAvailable())   //閿熸枻鎷烽敓鏂ゆ嫹閿熸枻鎷烽敓鏂ゆ嫹閿熸枻鎷�
+	{	c = USART2_readChar();
 		if(endflag)
 		{
 			if(count--)

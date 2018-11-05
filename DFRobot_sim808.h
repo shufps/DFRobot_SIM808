@@ -51,8 +51,8 @@ public:
      */
 	 
     DFRobot_SIM808(uint8_t tx, uint8_t rx, uint32_t baudRate = 9600 ); 
-	DFRobot_SIM808(HardwareSerial *mySerial);
-	DFRobot_SIM808(SoftwareSerial *mySerial);
+	DFRobot_SIM808(/*HardwareSerial *mySerial*/);
+	//DFRobot_SIM808(SoftwareSerial *mySerial);
     
     /** get instance of DFRobot_SIM808 class
      */
@@ -240,7 +240,7 @@ public:
      *  @return true if connected, false otherwise
      */
 	 
-    bool join(const __FlashStringHelper *apn = 0, const __FlashStringHelper *userName = 0, const __FlashStringHelper *passWord = 0);
+    bool join(const char *apn = 0, const char *userName = 0, const char *passWord = 0);
 
     /** Disconnect the DFRobot_SIM808 module from the network
      *  @returns
@@ -257,7 +257,7 @@ public:
      *  @returns true if successful
      */
     bool connect(Protocol ptl, const char * host, int port, int timeout = 2 * DEFAULT_TIMEOUT, int chartimeout = 2 * DEFAULT_INTERCHAR_TIMEOUT);
-	bool connect(Protocol ptl, const __FlashStringHelper *host, const __FlashStringHelper *port, int timeout = 2 * DEFAULT_TIMEOUT, int chartimeout = 2 * DEFAULT_INTERCHAR_TIMEOUT);
+	bool connect(Protocol ptl, const char *host, const char *port, int timeout = 2 * DEFAULT_TIMEOUT, int chartimeout = 2 * DEFAULT_INTERCHAR_TIMEOUT);
 
     /** Check if a tcp link is active
      *  @returns true if successful
@@ -321,7 +321,7 @@ public:
     
     char* getIPAddress();
     unsigned long getIPnumber();	
-    bool getLocation(const __FlashStringHelper *apn, float *longitude, float *latitude);
+    bool getLocation(const char *apn, float *longitude, float *latitude);
 	
 	//Open or Close GPS
 	bool  attachGPS();
@@ -343,9 +343,9 @@ public:
 	bool  getGPS(); 
 	
 	
-	 SoftwareSerial *gprsSerial;
+	/* SoftwareSerial *gprsSerial;
 	 HardwareSerial *hgprsSerial;
-	Stream *sgprsSerial;
+	Stream *sgprsSerial;*/
 	
 public:
 	struct gspdata{
@@ -369,8 +369,9 @@ public:
         float seconeds;
     }latDMS,longDMS;
 
+    bool unlockSIM(char* pin);
 private:
-	byte serialFlag;
+	uint8_t serialFlag;
     bool checkSIMStatus(void);
     uint32_t str_to_ip(const char* str);
     static DFRobot_SIM808* inst;

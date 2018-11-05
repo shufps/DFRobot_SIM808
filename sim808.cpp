@@ -29,11 +29,17 @@
  * THE SOFTWARE.
  */
 
+#include <stdint.h>
+#include <string.h>
+
 #include "sim808.h"
+#include "usart.h"
+#include "Timer.h"
 
 //SoftwareSerial *serialSIM808 = NULL;
 
-Stream *serialSIM808 = NULL;
+extern volatile uint32_t systick;
+extern Timer timer;
 
 /*
 void  sim808_init(void * uart_device, uint32_t baud)
@@ -44,18 +50,22 @@ void  sim808_init(void * uart_device, uint32_t baud)
 
 */
 
-void  sim808_init(void * uart_device, char num)
+void  sim808_init()
 {
-    if(num)
-		serialSIM808 = (HardwareSerial*)uart_device;
-	else
-		serialSIM808 = (SoftwareSerial*)uart_device;
 }
 
 
 int sim808_check_readable()
 {
-    return serialSIM808->available();
+    return USART2_isAvailable();
+}
+
+uint32_t millis() {
+	return systick;
+}
+
+void delay(uint32_t ms) {
+	timer.sleep(ms);
 }
 
 int sim808_wait_readable (int wait_time)
@@ -76,7 +86,7 @@ int sim808_wait_readable (int wait_time)
 void sim808_flush_serial()
 {
     while(sim808_check_readable()){
-        serialSIM808->read();
+    	USART2_readChar();
     }
 }
 
@@ -88,7 +98,7 @@ void sim808_read_buffer(char *buffer, int count, unsigned int timeout, unsigned 
     prevChar = 0;
     while(1) {
         while (sim808_check_readable()) {
-            char c = serialSIM808->read();
+            char c = USART2_readChar();
             prevChar = millis();
             buffer[i++] = c;
             if(i >= count)break;
@@ -114,40 +124,25 @@ void sim808_clean_buffer(char *buffer, int count)
 //HACERR quitar esta funcion ?
 void sim808_send_byte(uint8_t data)
 {
-	serialSIM808->write(data);
+	USART2_Write(&data, 1);
 }
 
 void sim808_send_char(const char c)
 {
-	serialSIM808->write(c);
+	USART2_Write((const uint8_t*) &c, 1);
 }
 
 void sim808_send_cmd(const char* cmd)
 {
-  for(uint16_t i=0; i<strlen(cmd); i++)
-    {
-        sim808_send_byte(cmd[i]);
-    }
+	USART2_Write((const uint8_t*) cmd, strlen(cmd));
 }
 
-void sim808_send_cmd(const __FlashStringHelper* cmd)
-{
-  int i = 0;
-  const char *ptr = (const char *) cmd;
-  while (pgm_read_byte(ptr + i) != 0x00) {
-    sim808_send_byte(pgm_read_byte(ptr + i++));
-  }
-}
 
-void sim808_send_cmd_P(const char* cmd)
-{
-  while (pgm_read_byte(cmd) != 0x00)
-    sim808_send_byte(pgm_read_byte(cmd++));
-}
 
-boolean sim808_send_AT(void)
+
+bool sim808_send_AT(void)
 {
-    return sim808_check_with_cmd(F("AT\r\n"),"OK",CMD);
+    return sim808_check_with_cmd("AT\r\n","OK",CMD);
 }
 
 void sim808_send_End_Mark(void)
@@ -155,16 +150,17 @@ void sim808_send_End_Mark(void)
     sim808_send_byte((char)26);
 }
 
-boolean sim808_wait_for_resp(const char* resp, DataType type, unsigned int timeout, unsigned int chartimeout)
+bool sim808_wait_for_resp(const char* resp, DataType type, unsigned int timeout, unsigned int chartimeout)
 {
     int len = strlen(resp);
     int sum = 0;
     unsigned long timerStart, prevChar;    //prevChar is the time when the previous Char has been read.
     timerStart = millis();
     prevChar = 0;
+
     while(1) {
         if(sim808_check_readable()) {
-            char c = serialSIM808->read();
+            char c = USART2_readChar();
             prevChar = millis();
             sum = (c==resp[sum]) ? sum+1 : 0;
             if(sum == len)break;
@@ -184,15 +180,9 @@ boolean sim808_wait_for_resp(const char* resp, DataType type, unsigned int timeo
 }
 
 
-boolean sim808_check_with_cmd(const char* cmd, const char *resp, DataType type, unsigned int timeout, unsigned int chartimeout)
+bool sim808_check_with_cmd(const char* cmd, const char *resp, DataType type, unsigned int timeout, unsigned int chartimeout)
 {
     sim808_send_cmd(cmd);
     return sim808_wait_for_resp(resp,type,timeout,chartimeout);
 }
 
-//HACERR que tambien la respuesta pueda ser FLASH STRING
-boolean sim808_check_with_cmd(const __FlashStringHelper* cmd, const char *resp, DataType type, unsigned int timeout, unsigned int chartimeout)
-{
-    sim808_send_cmd(cmd);
-    return sim808_wait_for_resp(resp,type,timeout,chartimeout);
-}
